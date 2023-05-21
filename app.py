@@ -22,22 +22,29 @@ print("torch cuda", torch.cuda.is_available())
 
 import sys
 
-class EncodeToTokensParams(BaseModel):
+class Text(BaseModel):
     text: str
 
 
-class DecodeFromTokensParams(BaseModel):
+class Tokens(BaseModel):
     tokens: List[int]
 
 
-class InferParams(BaseModel):
-    input_ids: List[int]
+class CommonGenerateParams(BaseModel):
     max_length: int = 64
     do_sample: bool = False
     top_k: int = 100
     top_p: float = 0.9
     temperature: float = 0.5
-    num_beams: int = 2
+    num_beams: int = 1
+
+
+class GenerateTokensParams(CommonGenerateParams):
+    input_tokens: List[int]
+
+
+class GenerateTextParams(CommonGenerateParams):
+    input_text: str
 
 
 class HFTextGenerationTaskParams(BaseModel):
@@ -59,16 +66,43 @@ class HFTextGenerationTaskParams(BaseModel):
 """
 
 
+"""
+# https://platform.openai.com/docs/api-reference/completions/create
+class OpenAICompletionsParams(BaseModel):
+    model: str
+    prompt: Optional[str] = None
+    suffix: Optional[str] = None
+    max_tokens: int = 16
+    temperature: float = 1.0
+    top_p: float = 1.0
+    n: int = 1
+    stream: bool = False
+    logprobs: Optional[int] = None
+    echo: bool = False
+    stop: Optional[Union[str, list]] = None
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+    best_of = 1
+    logit_bias = Optional[Dict[int, int]] = None
+    user: Optional[str] = None
+"""
+
+
 class RestfulLLMApp:
     def __init__(self, model_name: str, tokenizer_name: Optional[str]):
         self.model_name = model_name
         self.router = APIRouter()
         self.router.add_api_route("/docs", self.docs, methods=["GET"])
         self.router.add_api_route("/api/v1/default_config/", self.default_config, methods=["GET"])
+
         self.router.add_api_route("/api/v1/encode_to_tokens/", self.encode_to_tokens, methods=["POST"])
         self.router.add_api_route("/api/v1/decode_from_tokens/", self.decode_from_tokens, methods=["POST"])
-        self.router.add_api_route("/api/v1/generate/", self.generate, methods=["POST"])
-        self.router.add_api_route("/api/v1/hf_text_generation_task_generate/", self.hf_text_generation_task_generate, methods=["POST"])
+        self.router.add_api_route("/api/v1/generate_tokens/", self.generate_tokens, methods=["POST"])
+        self.router.add_api_route("/api/v1/generate_text/", self.generate_text, methods=["POST"])
+
+        #self.router.add_api_route("/api/huggingface_compatible/v1/text_generation_task/", self.huggingface_text_generation_task_generate, methods=["POST"])
+
+        #self.router.add_api_route("/api/openai_compatible/v1/completions/", self.openai_completions_generate, methods=["POST"])
 
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name or model_name)
         self.model = AutoModelForCausalLM.from_pretrained(model_name)
@@ -82,27 +116,37 @@ class RestfulLLMApp:
         )
         return JSONResponse(content=jsonable_encoder(default_config_dict))
 
-    def encode_to_tokens(self, params: EncodeToTokensParams) -> JSONResponse:
-        tokens = self.tokenizer(params.text).input_ids
-        return JSONResponse(content=jsonable_encoder(dict(tokens=tokens)))
+    def encode_to_tokens(self, text: Text) -> Tokens:
+        tokens = self.tokenizer(text.text).input_ids
+        return Tokens(tokens=tokens)
 
-    def decode_from_tokens(self, params: DecodeFromTokensParams) -> JSONResponse:
-        text = self.tokenizer.batch_decode(params.tokens)
-        return JSONResponse(content=jsonable_encoder(dict(text=text)))
+    def decode_from_tokens(self, tokens: Tokens) -> Text:
+        text = self.tokenizer.batch_decode([tokens.tokens])[0]
+        return Text(text=text)
 
-    def generate(self, params: InferParams) -> JSONResponse:
+    def generate_tokens(self, params: GenerateTokensParams) -> Tokens:
         generated_tokens = self.model.generate(
-            inputs=torch.LongTensor([params.input_ids]),
+            inputs=torch.LongTensor([params.input_tokens]),
             max_length=params.max_length,
             do_sample=params.do_sample,
             top_k=params.top_k,
             top_p=params.top_p,
             temperature=params.temperature,
             num_beams=params.num_beams,
-        )[0].tolist()
-        return JSONResponse(content=jsonable_encoder(dict(generated_tokens=generated_tokens)))
+        )
+        return Tokens(tokens=generated_tokens[0].tolist())
 
-    def hf_text_generation_task_generate(self, params: HFTextGenerationTaskParams) -> JSONResponse:
+    def generate_text(self, params: GenerateTextParams) -> Text:
+        input_tokens: Tokens = self.encode_to_tokens(text=Text(text=params.input_text))
+        params_dict = vars(params)
+        params_dict.pop("input_text")
+        params_dict["input_tokens"] = input_tokens.tokens
+        tokens_params = GenerateTokensParams(**params_dict)
+        generated_tokens = self.generate_tokens(params=tokens_params)
+        return self.decode_from_tokens(tokens=generated_tokens)
+
+    """
+    def huggingface_text_generation_task_generate(self, params: HFTextGenerationTaskParams) -> JSONResponse:
         input_ids = self.tokenizer(params.inputs).input_ids
         if params.parameters is not None:
             parameters = dict(
@@ -125,6 +169,10 @@ class RestfulLLMApp:
         generated_text_list = self.tokenizer.batch_decode(generated_tokens)
         res = [dict(generated_text=gt) for gt in generated_text_list]
         return JSONResponse(content=jsonable_encoder(res))
+
+    def openai_completions_generate(self, params: OpenAICompletionsParams) -> JSONResponse:
+        pass
+    """
 
 
 flask_app = Flask(__name__)
