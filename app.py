@@ -36,7 +36,6 @@ class CommonGenerateParams(BaseModel):
     top_k: int = 100
     top_p: float = 0.9
     temperature: float = 0.5
-    num_beams: int = 1
 
 
 class GenerateTokensParams(CommonGenerateParams):
@@ -95,8 +94,8 @@ class RestfulLLMApp:
         self.router.add_api_route("/docs", self.docs, methods=["GET"])
         self.router.add_api_route("/api/v1/default_config/", self.default_config, methods=["GET"])
 
-        self.router.add_api_route("/api/v1/encode_to_tokens/", self.encode_to_tokens, methods=["POST"])
-        self.router.add_api_route("/api/v1/decode_from_tokens/", self.decode_from_tokens, methods=["POST"])
+        self.router.add_api_route("/api/v1/tokenize/", self.tokenize, methods=["POST"])
+        self.router.add_api_route("/api/v1/detokenize/", self.detokenize, methods=["POST"])
         self.router.add_api_route("/api/v1/generate_tokens/", self.generate_tokens, methods=["POST"])
         self.router.add_api_route("/api/v1/generate_text/", self.generate_text, methods=["POST"])
 
@@ -116,12 +115,12 @@ class RestfulLLMApp:
         )
         return JSONResponse(content=jsonable_encoder(default_config_dict))
 
-    def encode_to_tokens(self, text: Text) -> Tokens:
+    def tokenize(self, text: Text) -> Tokens:
         tokens = self.tokenizer(text.text).input_ids
         return Tokens(tokens=tokens)
 
-    def decode_from_tokens(self, tokens: Tokens) -> Text:
-        text = self.tokenizer.batch_decode([tokens.tokens])[0]
+    def detokenize(self, tokens: Tokens) -> Text:
+        text = self.tokenizer.decode(tokens.tokens)
         return Text(text=text)
 
     def generate_tokens(self, params: GenerateTokensParams) -> Tokens:
@@ -132,9 +131,8 @@ class RestfulLLMApp:
             top_k=params.top_k,
             top_p=params.top_p,
             temperature=params.temperature,
-            num_beams=params.num_beams,
-        )
-        return Tokens(tokens=generated_tokens[0].tolist())
+        )[0]
+        return Tokens(tokens=generated_tokens.tolist())
 
     def generate_text(self, params: GenerateTextParams) -> Text:
         input_tokens: Tokens = self.encode_to_tokens(text=Text(text=params.input_text))
@@ -180,7 +178,7 @@ flask_app = Flask(__name__)
 
 @flask_app.route("/")
 def index():
-    return render_template("index.html", title="LocalLLM")
+    return render_template("index.html", title="RestfulLLM")
 
 
 if __name__=="__main__":
