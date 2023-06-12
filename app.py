@@ -72,7 +72,7 @@ class RestfulLLMApp:
         )
 
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name or model_name)
-        self.model = AutoModelForCausalLM.from_pretrained(model_name)
+        self.model = AutoModelForCausalLM.from_pretrained(model_name, low_cpu_mem_usage=True)#, torch_dtype=torch.float16)
 
     def docs(self):
         return RedirectResponse(url="/docs")
