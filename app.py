@@ -1,25 +1,23 @@
 import argparse
-import json
-import io
 import base64
-from typing import List, Union, Optional, Tuple, Dict
-
-from flask import render_template
-from fastapi import FastAPI, APIRouter, status
-from fastapi.encoders import jsonable_encoder
-from fastapi.responses import (
-    JSONResponse,
-    Response,
-    RedirectResponse,
-    StreamingResponse,
-)
-from fastapi.middleware.wsgi import WSGIMiddleware
-from flask import Flask, escape, request
-from pydantic import BaseModel
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import transformers
+import io
+import json
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+import transformers
+from fastapi import APIRouter, FastAPI, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.middleware.wsgi import WSGIMiddleware
+from fastapi.responses import (
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
+from flask import Flask, escape, render_template, request
+from pydantic import BaseModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # torch.backends.cudnn.enabled = False
 # from xformers.ops import MemoryEfficientAttentionFlashAttentionOp
@@ -51,12 +49,6 @@ class GenerateTokensParams(CommonGenerateParams):
 
 class GenerateTextParams(CommonGenerateParams):
     input_text: str
-
-
-class HFTextGenerationTaskParams(BaseModel):
-    inputs: str
-    parameters: Optional[Dict[str, Union[bool, int, float]]]
-    options: Optional[Dict[str, bool]]
 
 
 class RestfulLLMApp:
@@ -111,13 +103,13 @@ class RestfulLLMApp:
         return Tokens(tokens=generated_tokens.tolist())
 
     def generate_text(self, params: GenerateTextParams) -> Text:
-        input_tokens: Tokens = self.encode_to_tokens(text=Text(text=params.input_text))
+        input_tokens: Tokens = self.tokenize(text=Text(text=params.input_text))
         params_dict = vars(params)
         params_dict.pop("input_text")
         params_dict["input_tokens"] = input_tokens.tokens
         tokens_params = GenerateTokensParams(**params_dict)
         generated_tokens = self.generate_tokens(params=tokens_params)
-        return self.decode_from_tokens(tokens=generated_tokens)
+        return self.detokenize(tokens=generated_tokens)
 
 
 flask_app = Flask(__name__)
